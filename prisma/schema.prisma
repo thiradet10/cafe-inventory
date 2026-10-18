@@ -1,0 +1,74 @@
+// ==========================================
+// 1. DATABASE & CLIENT CONFIGURATION
+// ==========================================
+
+// ตัวสร้าง Prisma Client เพื่อนำไปใช้อ้างอิง API ใน Next.js
+generator client {
+  provider = "prisma-client-js"
+}
+
+// กำหนดไดรเวอร์การเชื่อมต่อฐานข้อมูล (ใช้ SQLite เพื่อความสะดวกรวดเร็วในการติดตั้งและทดสอบ)
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// 2. ENUMS (การกำหนดค่าคงที่ของระบบ)
+// ==========================================
+
+// ระบบสิทธิ์ผู้ใช้งาน (Role-Based Access Control - RBAC)
+enum Role {
+  STAFF    // พนักงานทั่วไป: สิทธิ์ดูสินค้า และเบิก/เติมสต็อกด่วน
+  MANAGER  // ผู้จัดการ: สิทธิ์สูงสุด (CRUD สินค้า, จัดการพนักงาน, ลบข้อมูล)
+}
+
+// ประเภทธุรกรรมการเคลื่อนไหวของสต็อกสินค้า
+enum LogType {
+  IN                 //  เติมสต็อก (รับวัตถุดิบเข้าคลัง)
+  OUT                //  เบิกใช้งาน (นำวัตถุดิบออกไปประกอบอาหาร/เครื่องดื่ม)
+}
+
+// ==========================================
+// 3. MODELS (ตารางฐานข้อมูล)
+// ==========================================
+
+// 👤 ตารางเก็บข้อมูลผู้ใช้งานระบบ (Users)
+model User {
+  id        String   @id @default(cuid()) // รหัสอ้างอิงที่ไม่ซ้ำกันแบบ CUID
+  name      String                        // ชื่อ-นามสกุล ผู้ใช้งาน
+  email     String   @unique              // อีเมลสำหรับล็อกอิน (ห้ามซ้ำในระบบ)
+  password  String?                       // รหัสผ่านเข้ารหัส bcrypt (เป็น Optional เพื่อรองรับ Google OAuth)
+  role      Role     @default(STAFF)      // สิทธิ์การใช้งาน (ตั้งค่าเริ่มต้นเป็น STAFF)
+  createdAt DateTime @default(now())      // วันเวลาที่สร้างบัญชี
+  logs      StockLog[]                    // ความสัมพันธ์แบบ 1-to-Many กับประวัติการทำรายการสต็อก
+}
+
+// 📦 ตารางเก็บข้อมูลวัตถุดิบและสินค้า (Items)
+model Item {
+  id           Int        @id @default(autoincrement()) // รหัส ID สินค้ารันอัตโนมัติ
+  itemCode     String     @unique                       // รหัสสินค้าเฉพาะ เช่น CF-001, BK-001 (ห้ามซ้ำ)
+  name         String                                   // ชื่อวัตถุดิบ / สินค้า
+  category     String                                   // หมวดหมู่สินค้า (เช่น เมล็ดกาแฟ, ผลิตภัณฑ์นม, เบเกอรี่)
+  quantity     Float                                    // จำนวนคงเหลือปัจจุบันในระบบ
+  unit         String                                   // หน่วยนับ (เช่น ถุง, แกลลอน, ขวด, กิโลกรัม)
+  minQuantity  Float                                    // จำนวนขั้นต่ำสำหรับแจ้งเตือน "สต็อกต่ำ"
+  pricePerUnit Float                                    // ราคาต้นทุนต่อหน่วย (บาท)
+  expiryDate   DateTime?                                // วันหมดอายุของวัตถุดิบ (เป็น Optional ถ้าสินค้าไม่มีวันหมดอายุ)
+  updatedAt    DateTime   @updatedAt                    // บันทึกวันเวลาที่อัปเดตข้อมูลล่าสุดอัตโนมัติ
+  createdAt    DateTime   @default(now())              // วันเวลาที่เพิ่มรายการวัตถุดิบเข้าสู่ระบบ
+  logs         StockLog[]                               // ความสัมพันธ์แบบ 1-to-Many กับประวัติการทำรายการสต็อก
+}
+
+// 📋 ตารางเก็บประวัติการเบิก-เติมสต็อก (StockLog / Audit Trail)
+model StockLog {
+  id        Int      @id @default(autoincrement())                                     // รหัส ID ประวัติรันอัตโนมัติ
+  itemId    Int                                                                       // รหัสสินค้าที่ทำรายการ (Foreign Key)
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade) // เชื่อมตาราง Item (ถ้าลบ Item ประวัติจะถูกลบตาม)
+  userId    String                                                                    // รหัสผู้ใช้งานที่ทำรายการ (Foreign Key)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade) // เชื่อมตาราง User (ถ้าลบ User ประวัติจะถูกลบตาม)
+  type      LogType                                                                   // ประเภทรายการ: IN (เติม) หรือ OUT (เบิก)
+  quantity  Float                                                                     // จำนวนที่มีการเบิกหรือเติม
+  note      String?                                                                   // หมายเหตุเพิ่มเติม (เช่น "เบิกทำเมนูประจำวัน")
+  createdAt DateTime @default(now())                                                  // วันเวลาที่ทำรายการบันทึกสต็อก
+}
