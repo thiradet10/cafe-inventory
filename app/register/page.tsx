@@ -26,6 +26,13 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault() // ป้องกันไม่ให้ฟอร์ม Refresh หน้าเว็บ
     setError('')
+
+    // 🟢 ตรวจสอบความยาวรหัสผ่าน (สั้นสุด 6 ตัวอักษร และยาวไม่เกิน 10 ตัวอักษร)
+    if (formData.password.length < 6 || formData.password.length > 10) {
+      setError('รหัสผ่านต้องมีความยาวระหว่าง 6 ถึง 10 ตัวอักษร')
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -134,12 +141,14 @@ export default function RegisterPage() {
 
           <div>
             <label className="block text-xs font-bold text-stone-700 mb-1">
-              รหัสผ่าน
+              รหัสผ่าน (6-10 ตัวอักษร)
             </label>
             <input
               type="password"
               required // บังคับกรอกข้อมูล
-              placeholder="••••••••"
+              minLength={6}
+              maxLength={10}
+              placeholder="รหัสผ่าน (6-10 ตัวอักษร)"
               value={formData.password}
               onChange={(e) =>
                 setFormData({ ...formData, password: e.target.value })

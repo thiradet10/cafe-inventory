@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server' // นำเข้า NextResponse สำหรับส่ง HTTP Response กลับไปยัง Client
 import { prisma } from '@/lib/prisma' // นำเข้า Prisma Client สำหรับจัดการคำสั่งและเชื่อมต่อฐานข้อมูล
-import { auth } from '@/auth' // นำเข้าฟังก์ชัน auth จาก NextAuth v5 สำหรับดึง Session ตรวจสอบการเข้าสู่ระบบ
+// import { auth } from '@/auth' // [ปิดไว้ชั่วคราวสำหรับ JMeter Test]
 
 // GET: ดึงประวัติการทำรายการสต็อก (Audit Trail) 50 รายการล่าสุด
 export async function GET() {
   try {
-    // 1. ตรวจสอบการเข้าสู่ระบบ (Authentication Check)
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: 'กรุณาเข้าสู่ระบบ' }, { status: 401 })
-    }
+    // 🟢 1. [ปิดการตรวจสอบ Authentication ชั่วคราวสำหรับ JMeter Performance Test]
+    // const session = await auth()
+    // if (!session) {
+    //   return NextResponse.json({ error: 'กรุณาเข้าสู่ระบบ' }, { status: 401 })
+    // }
 
     // 2. ดึงข้อมูลประวัติสต็อก 50 รายการล่าสุด พร้อมเชื่อมข้อมูลตาราง Item และ User (Relation Join)
     const logs = await prisma.stockLog.findMany({
@@ -30,19 +30,17 @@ export async function GET() {
 // POST: บันทึกการเบิกออก (OUT) หรือ เติมสต็อกเข้า (IN)
 export async function POST(request: Request) {
   try {
-    // 1. ตรวจสอบ Session ผู้ใช้งาน
-    const session = await auth()
-    if (!session || !session.user?.email) {
-      return NextResponse.json({ error: 'กรุณาเข้าสู่ระบบ' }, { status: 401 })
-    }
+    // 🟢 1. [ปิดการตรวจสอบ Session ผู้ใช้งานชั่วคราวสำหรับ JMeter Performance Test]
+    // const session = await auth()
+    // if (!session || !session.user?.email) {
+    //   return NextResponse.json({ error: 'กรุณาเข้าสู่ระบบ' }, { status: 401 })
+    // }
 
-    // 2. ค้นหาข้อมูลผู้ใช้ในฐานข้อมูลจากอีเมลใน Session
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    })
+    // 🟢 2. ดึงข้อมูลผู้ใช้คนแรกจากฐานข้อมูลมาเป็น Mock User อัตโนมัติ (เพื่อนำ user.id ไปบันทึกใน StockLog)
+    const user = await prisma.user.findFirst()
 
     if (!user) {
-      return NextResponse.json({ error: 'ไม่พบผู้ใช้งาน' }, { status: 404 })
+      return NextResponse.json({ error: 'ไม่พบผู้ใช้งานในระบบ (กรุณาสร้างผู้ใช้อย่างน้อย 1 คนใน DB)' }, { status: 404 })
     }
 
     // 3. อ่านและทำ Data Validation ตรวจสอบความถูกต้องของข้อมูลที่ส่งมา

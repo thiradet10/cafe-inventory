@@ -7,7 +7,6 @@ import { useSession, signOut } from 'next-auth/react'
 // 1. TYPES & INTERFACES (การกำหนดประเภทข้อมูล)
 // ==========================================
 
-// โครงสร้างข้อมูลสินค้า/วัตถุดิบ
 interface Item {
   id: number
   itemCode: string
@@ -20,7 +19,6 @@ interface Item {
   expiryDate?: string | null
 }
 
-// โครงสร้างข้อมูลผู้ใช้งานระบบ
 interface User {
   id: string
   name: string
@@ -28,7 +26,16 @@ interface User {
   role: string
 }
 
-// โครงสร้างข้อมูลประวัติการทำรายการสต็อก (Audit Trail)
+interface Category {
+  id: number
+  name: string
+}
+
+interface Unit {
+  id: number
+  name: string
+}
+
 interface StockLog {
   id: number
   type: 'IN' | 'OUT'
@@ -39,44 +46,25 @@ interface StockLog {
   user: { name: string; email: string }
 }
 
-// ตัวเลือกหมวดหมู่และหน่วยนับสำหรับใช้ใน Form/Select
-const CATEGORY_OPTIONS = [
-  'เมล็ดกาแฟ',
-  'ผลิตภัณฑ์นม',
-  'เบเกอรี่',
-  'ไซรัป / น้ำเชื่อม',
-  'ชาและเครื่องดื่ม',
-  'บรรจุภัณฑ์',
-  'อื่นๆ',
-]
-
-const UNIT_OPTIONS = [
-  'ถุง',
-  'แกลลอน',
-  'ขวด',
-  'กล่อง',
-  'ชิ้น',
-  'แพ็ค',
-  'กระป๋อง',
-  'กิโลกรัม',
-  'ลิตร',
-]
-
 export default function DashboardPage() {
   // ==========================================
   // 2. STATE MANAGEMENT & SESSION
   // ==========================================
 
-  // ดึงข้อมูล Session ผู้ใช้ที่ล็อกอินอยู่ผ่าน NextAuth.js
-  const { data: session } = useSession()
+  const { data: session, update } = useSession()
 
-  // State หลักสำหรับคลังสินค้า ค้นหา และกรองหมวดหมู่
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('ALL')
 
-  // เช็กสิทธิ์ Role-Based Access Control (RBAC): เป็น MANAGER หรือไม่
+  const [categories, setCategories] = useState<Category[]>([])
+  const [units, setUnits] = useState<Unit[]>([])
+  const [isCatUnitModalOpen, setIsCatUnitModalOpen] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [newUnitName, setNewUnitName] = useState('')
+
+  const currentUserId = (session?.user as { id?: string })?.id
   const isManager = (session?.user as { role?: string })?.role === 'MANAGER'
 
   // State สำหรับ Modal เพิ่ม/แก้ไขวัตถุดิบ
@@ -85,9 +73,9 @@ export default function DashboardPage() {
   const [formData, setFormData] = useState({
     itemCode: '',
     name: '',
-    category: CATEGORY_OPTIONS[0],
+    category: '',
     quantity: 0,
-    unit: UNIT_OPTIONS[0],
+    unit: '',
     minQuantity: 0,
     pricePerUnit: 0,
     expiryDate: '',
@@ -111,18 +99,29 @@ export default function DashboardPage() {
   const [isUserModalOpen, setIsUserModalOpen] = useState(false)
   const [users, setUsers] = useState<User[]>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
-  const [newUserForm, setNewUserForm] = useState({
+  const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [userForm, setUserForm] = useState({
     name: '',
     email: '',
     password: '',
     role: 'STAFF',
   })
 
+  // State สำหรับ Modal แก้ไขโปรไฟล์ส่วนตัว & เปลี่ยนรหัสผ่าน
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
+  const [loadingProfile, setLoadingProfile] = useState(false)
+  const [profileForm, setProfileForm] = useState({
+    name: '',
+    email: '',
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  })
+
   // ==========================================
   // 3. API FETCHING FUNCTIONS (การดึงข้อมูลจาก Server)
   // ==========================================
 
-  // ดึงรายการวัตถุดิบทั้งหมดจาก API (`GET /api/items`)
   const fetchItems = useCallback(async () => {
     try {
       setLoading(true)
@@ -138,11 +137,36 @@ export default function DashboardPage() {
     }
   }, [])
 
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch('/api/categories')
+      if (res.ok) {
+        const data = await res.json()
+        setCategories(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch categories:', error)
+    }
+  }, [])
+
+  const fetchUnits = useCallback(async () => {
+    try {
+      const res = await fetch('/api/units')
+      if (res.ok) {
+        const data = await res.json()
+        setUnits(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch units:', error)
+    }
+  }, [])
+
   useEffect(() => {
     fetchItems()
-  }, [fetchItems])
+    fetchCategories()
+    fetchUnits()
+  }, [fetchItems, fetchCategories, fetchUnits])
 
-  // ดึงประวัติการใช้สต็อก (`GET /api/stock-logs`)
   const fetchLogs = async () => {
     try {
       setLoadingLogs(true)
@@ -153,7 +177,6 @@ export default function DashboardPage() {
     }
   }
 
-  // ดึงรายชื่อพนักงาน (`GET /api/users`)
   const fetchUsers = async () => {
     try {
       setLoadingUsers(true)
@@ -164,25 +187,121 @@ export default function DashboardPage() {
     }
   }
 
+  const fetchProfile = async () => {
+    try {
+      setLoadingProfile(true)
+      const res = await fetch('/api/profile')
+      if (res.ok) {
+        const data = await res.json()
+        setProfileForm((prev) => ({
+          ...prev,
+          name: data.name || '',
+          email: data.email || '',
+          currentPassword: '',
+          newPassword: '',
+          confirmPassword: '',
+        }))
+      }
+    } finally {
+      setLoadingProfile(false)
+    }
+  }
+
   // ==========================================
-  // 4. EVENT HANDLERS (จัดการปุ่มกดและฟอร์ม)
+  // 4. EVENT HANDLERS (จัดการโปรไฟล์ส่วนตัว)
   // ==========================================
 
-  // บันทึกการสร้างพนักงานใหม่ (`POST /api/users`)
-  const handleAddUser = async (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // 🟢 ตรวจสอบเงื่อนไขความยาวรหัสผ่านใหม่ (ต้องสั้นสุด 6 ตัว และยาวไม่เกิน 10 ตัว)
+    if (profileForm.newPassword) {
+      if (profileForm.newPassword.length < 6 || profileForm.newPassword.length > 10) {
+        alert('รหัสผ่านใหม่ต้องมีความยาวระหว่าง 6 ถึง 10 ตัวอักษร')
+        return
+      }
+
+      if (profileForm.newPassword !== profileForm.confirmPassword) {
+        alert('รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน')
+        return
+      }
+    }
+
     try {
-      const res = await fetch('/api/users', {
-        method: 'POST',
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newUserForm),
+        body: JSON.stringify(profileForm),
       })
+
+      const data = await res.json().catch(() => null)
+
       if (res.ok) {
-        alert('✨ เพิ่มพนักงานใหม่สำเร็จ!')
-        setNewUserForm({ name: '', email: '', password: '', role: 'STAFF' })
+        await update({
+          name: data?.name || profileForm.name,
+          email: data?.email || profileForm.email,
+        })
+
+        alert('✨ อัปเดตข้อมูลโปรไฟล์เรียบร้อยแล้ว!')
+        setIsProfileModalOpen(false)
+      } else {
+        alert(data?.error || 'เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์')
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ')
+    }
+  }
+
+  // ==========================================
+  // EVENT HANDLERS (จัดการพนักงาน)
+  // ==========================================
+
+  const openUserEditForm = (user?: User) => {
+    if (user) {
+      setEditingUser(user)
+      setUserForm({
+        name: user.name,
+        email: user.email,
+        password: '',
+        role: user.role,
+      })
+    } else {
+      setEditingUser(null)
+      setUserForm({ name: '', email: '', password: '', role: 'STAFF' })
+    }
+  }
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    // 🟢 ตรวจสอบความยาวรหัสผ่านพนักงาน (6 - 10 ตัวอักษร)
+    if (!editingUser && (userForm.password.length < 6 || userForm.password.length > 10)) {
+      alert('รหัสผ่านต้องมีความยาวระหว่าง 6 ถึง 10 ตัวอักษร')
+      return
+    }
+
+    if (editingUser && userForm.password && (userForm.password.length < 6 || userForm.password.length > 10)) {
+      alert('รหัสผ่านต้องมีความยาวระหว่าง 6 ถึง 10 ตัวอักษร')
+      return
+    }
+
+    try {
+      const url = editingUser ? `/api/users/${editingUser.id}` : '/api/users'
+      const method = editingUser ? 'PUT' : 'POST'
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userForm),
+      })
+
+      const data = await res.json().catch(() => null)
+
+      if (res.ok) {
+        alert(editingUser ? '✨ แก้ไขข้อมูลพนักงานเรียบร้อยแล้ว!' : '✨ เพิ่มพนักงานใหม่สำเร็จ!')
+        openUserEditForm()
         fetchUsers()
       } else {
-        const data = await res.json().catch(() => null)
         alert(data?.error || `เกิดข้อผิดพลาด (สถานะ: ${res.status})`)
       }
     } catch {
@@ -190,7 +309,98 @@ export default function DashboardPage() {
     }
   }
 
-  // เปิด Modal เบิก/เติมด่วน
+  const handleDeleteUser = async (id: string, name: string) => {
+    if (!confirm(`คุณต้องการลบพนักงาน "${name}" ออกจากระบบใช่หรือไม่?`)) return
+    try {
+      const res = await fetch(`/api/users/${id}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => null)
+      if (res.ok) {
+        alert('✨ ลบพนักงานเรียบร้อยแล้ว')
+        fetchUsers()
+      } else {
+        alert(data?.error || 'ไม่สามารถลบพนักงานได้')
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ')
+    }
+  }
+
+  // ==========================================
+  // EVENT HANDLERS อื่นๆ (หมวดหมู่, หน่วยนับ, วัตถุดิบ)
+  // ==========================================
+
+  const handleAddCategory = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newCategoryName.trim()) return
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newCategoryName }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok) {
+        setNewCategoryName('')
+        fetchCategories()
+      } else {
+        alert(data?.error || 'เกิดข้อผิดพลาดในการเพิ่มหมวดหมู่')
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ')
+    }
+  }
+
+  const handleDeleteCategory = async (id: number, name: string) => {
+    if (!confirm(`ยืนยันการลบหมวดหมู่ "${name}"?`)) return
+    try {
+      const res = await fetch(`/api/categories/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        fetchCategories()
+      } else {
+        const data = await res.json().catch(() => null)
+        alert(data?.error || 'ไม่สามารถลบหมวดหมู่นี้ได้')
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ')
+    }
+  }
+
+  const handleAddUnit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newUnitName.trim()) return
+    try {
+      const res = await fetch('/api/units', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newUnitName }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok) {
+        setNewUnitName('')
+        fetchUnits()
+      } else {
+        alert(data?.error || 'เกิดข้อผิดพลาดในการเพิ่มหน่วยนับ')
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ')
+    }
+  }
+
+  const handleDeleteUnit = async (id: number, name: string) => {
+    if (!confirm(`ยืนยันการลบหน่วยนับ "${name}"?`)) return
+    try {
+      const res = await fetch(`/api/units/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        fetchUnits()
+      } else {
+        const data = await res.json().catch(() => null)
+        alert(data?.error || 'ไม่สามารถลบหน่วยนับนี้ได้')
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ')
+    }
+  }
+
   const openQuickUsageModal = (item?: Item) => {
     setQuickForm({
       itemId: item ? String(item.id) : items[0] ? String(items[0].id) : '',
@@ -201,7 +411,6 @@ export default function DashboardPage() {
     setIsQuickUsageOpen(true)
   }
 
-  // บันทึกการเบิก/เติมด่วน (`POST /api/stock-logs`)
   const handleQuickSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
@@ -225,8 +434,10 @@ export default function DashboardPage() {
     }
   }
 
-  // เปิด Modal เพิ่มหรือแก้ไขสินค้า
   const openModal = (item?: Item) => {
+    const defaultCat = categories[0]?.name || 'ทั่วไป'
+    const defaultUnit = units[0]?.name || 'ชิ้น'
+
     if (item) {
       setEditingItem(item)
       setFormData({
@@ -246,9 +457,9 @@ export default function DashboardPage() {
       setFormData({
         itemCode: '',
         name: '',
-        category: CATEGORY_OPTIONS[0],
+        category: defaultCat,
         quantity: 0,
-        unit: UNIT_OPTIONS[0],
+        unit: defaultUnit,
         minQuantity: 5,
         pricePerUnit: 0,
         expiryDate: '',
@@ -257,7 +468,6 @@ export default function DashboardPage() {
     setIsModalOpen(true)
   }
 
-  // บันทึกข้อมูลสินค้าใหม่ (POST) หรืออัปเดตสินค้าเดิม (PUT)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
@@ -288,7 +498,6 @@ export default function DashboardPage() {
     }
   }
 
-  // ลบสินค้า (`DELETE /api/items/[id]`)
   const handleDelete = async (id: number) => {
     if (!confirm('ยืนยันการลบรายการวัตถุดิบนี้?')) return
     try {
@@ -300,10 +509,9 @@ export default function DashboardPage() {
   }
 
   // ==========================================
-  // 5. HELPER & FILTERING LOGIC (คำนวณและกรองข้อมูล)
+  // 5. HELPER & FILTERING LOGIC
   // ==========================================
 
-  // คำนวณวันหมดอายุเพื่อแสดง Badge แจ้งเตือน
   const getExpiryStatus = (dateStr?: string | null) => {
     if (!dateStr) return null
     const today = new Date()
@@ -321,7 +529,6 @@ export default function DashboardPage() {
     return { label: new Date(dateStr).toLocaleDateString('th-TH'), badge: 'bg-stone-100 text-stone-700 border-stone-300 font-semibold' }
   }
 
-  // กรองข้อมูลสินค้าตามคำค้นหา (ชื่อ/รหัส) และหมวดหมู่ที่เลือกแบบ Real-time
   const filteredItems = items.filter((item) => {
     const matchesSearch =
       item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -331,7 +538,6 @@ export default function DashboardPage() {
     return matchesSearch && matchesCategory
   })
 
-  // คำนวณจำนวนสต็อกต่ำและสินค้าใกล้หมดอายุ
   const lowStockCount = items.filter((i) => i.quantity <= i.minQuantity).length
   const expiringCount = items.filter((i) => {
     if (!i.expiryDate) return false
@@ -342,18 +548,17 @@ export default function DashboardPage() {
   }).length
 
   // ==========================================
-  // 6. RENDER UI (ส่วนแสดงผลหน้าจอ)
+  // 6. RENDER UI
   // ==========================================
 
   return (
     <div className="min-h-screen bg-[#FAF7F2] text-stone-900 relative overflow-x-hidden">
-      {/* เอฟเฟกต์แสงพื้นหลังโทนอุ่น (Warm Cream Theme) */}
       <div className="pointer-events-none fixed -left-40 -top-40 h-[500px] w-[500px] rounded-full bg-amber-200/50 blur-[120px]" />
       <div className="pointer-events-none fixed -right-40 top-1/3 h-[600px] w-[600px] rounded-full bg-orange-200/40 blur-[150px]" />
 
       <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         
-        {/* Header Bar: แสดงข้อมูลผู้ใช้ ป้ายบอก Role และปุ่มนำทางหลัก */}
+        {/* Header Bar */}
         <header className="mb-8 rounded-3xl border border-stone-300/80 bg-white p-6 shadow-lg shadow-stone-200/60 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-[4px] bg-gradient-to-r from-amber-500 via-amber-700 to-amber-500" />
           <div className="flex flex-wrap items-center justify-between gap-6">
@@ -368,8 +573,6 @@ export default function DashboardPage() {
                 <p className="mt-1 text-xs sm:text-sm text-stone-600 font-medium flex items-center gap-2">
                   <span>ยินดีต้อนรับคุณ <strong className="text-stone-900 font-bold">{session?.user?.name || 'ผู้ใช้งาน'}</strong></span>
                   <span className="h-1.5 w-1.5 rounded-full bg-stone-400" />
-                  
-                  {/* แสดง Badge แยกสิทธิ์ MANAGER และ STAFF */}
                   <span className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-bold ${isManager ? 'bg-amber-100 text-amber-950 border border-amber-300' : 'bg-emerald-100 text-emerald-950 border border-emerald-300'}`}>
                     {isManager ? '👑 ผู้จัดการร้าน' : '☕ พนักงาน (STAFF)'}
                   </span>
@@ -378,6 +581,17 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-3">
+              {/* ปุ่มแก้ไขโปรไฟล์ส่วนตัว */}
+              <button
+                onClick={() => {
+                  setIsProfileModalOpen(true)
+                  fetchProfile()
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-xs font-bold text-stone-800 transition-all hover:bg-stone-50 hover:border-stone-400 shadow-sm"
+              >
+                <span>👤</span> โปรไฟล์ของฉัน
+              </button>
+
               <button
                 onClick={() => {
                   setIsLogsModalOpen(true)
@@ -388,11 +602,20 @@ export default function DashboardPage() {
                 <span>📋</span> ประวัติสต็อก
               </button>
 
-              {/* ปุ่มจัดการพนักงาน แสดงเฉพาะสิทธิ์ MANAGER */}
+              {isManager && (
+                <button
+                  onClick={() => setIsCatUnitModalOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50/80 px-4 py-2.5 text-xs font-bold text-amber-950 transition-all hover:bg-amber-100 shadow-sm"
+                >
+                  <span>🏷️</span> หมวดหมู่ & หน่วยนับ
+                </button>
+              )}
+
               {isManager && (
                 <button
                   onClick={() => {
                     setIsUserModalOpen(true)
+                    openUserEditForm()
                     fetchUsers()
                   }}
                   className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs font-bold text-amber-950 transition-all hover:bg-amber-100 shadow-sm"
@@ -411,7 +634,7 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        {/* Metric Cards: การ์ดสรุปข้อมูลสถิติสต็อก */}
+        {/* Metric Cards */}
         <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-md transition-all hover:shadow-lg">
             <div className="flex items-center justify-between">
@@ -441,10 +664,9 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Action Toolbar: ช่องค้นหา ตัวกรองหมวดหมู่ และปุ่มเพิ่มรายการ */}
+        {/* Action Toolbar */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-1 flex-wrap items-center gap-3 max-w-2xl">
-            {/* Input ค้นหา Real-time */}
             <div className="relative flex-1 min-w-[240px]">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-stone-400 text-sm">🔍</span>
               <input
@@ -456,23 +678,21 @@ export default function DashboardPage() {
               />
             </div>
 
-            {/* Select เลือกกรองตามหมวดหมู่ */}
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
               className="rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-800 focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20 shadow-sm cursor-pointer"
             >
               <option value="ALL">ทุกหมวดหมู่สินค้า</option>
-              {CATEGORY_OPTIONS.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.name}>
+                  {cat.name}
                 </option>
               ))}
             </select>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* ปุ่มเบิก/เติมด่วน (ใช้ได้ทุกคน) */}
             <button
               onClick={() => openQuickUsageModal()}
               className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-5 py-2.5 text-xs font-bold text-white shadow-md hover:bg-emerald-800 transition-all"
@@ -480,7 +700,6 @@ export default function DashboardPage() {
               ⚡ เบิก / เติมด่วน
             </button>
 
-            {/* ปุ่มเพิ่มวัตถุดิบใหม่ แสดงเฉพาะ MANAGER */}
             {isManager && (
               <button
                 onClick={() => openModal()}
@@ -492,7 +711,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Main Table: ตารางแสดงรายการคลังสินค้าหลัก */}
+        {/* Main Table */}
         <div className="overflow-x-auto rounded-3xl border border-stone-200/80 bg-white shadow-xl shadow-stone-200/50">
           {loading ? (
             <div className="p-16 text-center">
@@ -524,15 +743,12 @@ export default function DashboardPage() {
                   const expStatus = getExpiryStatus(item.expiryDate)
                   return (
                     <tr key={item.id} className="hover:bg-amber-50/40 transition-colors duration-150">
-                      
-                      {/* รหัสสินค้า */}
                       <td className="px-5 py-4 whitespace-nowrap">
                         <span className="inline-block rounded-xl bg-amber-100/80 px-2.5 py-1 text-xs font-black text-amber-900 border border-amber-200/80 tracking-wide whitespace-nowrap">
                           {item.itemCode}
                         </span>
                       </td>
 
-                      {/* ชื่อวัตถุดิบและราคา */}
                       <td className="px-5 py-4">
                         <div className="font-bold text-stone-900 text-sm">{item.name}</div>
                         <div className="text-xs font-semibold text-stone-500 mt-0.5">
@@ -540,14 +756,12 @@ export default function DashboardPage() {
                         </div>
                       </td>
 
-                      {/* หมวดหมู่ */}
                       <td className="px-5 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center rounded-xl bg-stone-100 px-3 py-1 text-xs font-bold text-stone-700 border border-stone-200/80 whitespace-nowrap">
                           {item.category}
                         </span>
                       </td>
 
-                      {/* จำนวนคงเหลือ */}
                       <td className="px-5 py-4 whitespace-nowrap">
                         <span className="text-base font-black text-stone-900">
                           {item.quantity}
@@ -555,7 +769,6 @@ export default function DashboardPage() {
                         <span className="text-xs font-semibold text-stone-500">{item.unit}</span>
                       </td>
 
-                      {/* Badge แสดงวันหมดอายุ / สถานะหมดอายุ */}
                       <td className="px-5 py-4 whitespace-nowrap">
                         {expStatus ? (
                           <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs border whitespace-nowrap ${expStatus.badge}`}>
@@ -566,7 +779,6 @@ export default function DashboardPage() {
                         )}
                       </td>
 
-                      {/* Badge แสดงสถานะสต็อก (ปกติ / สต็อกต่ำ) */}
                       <td className="px-5 py-4 whitespace-nowrap">
                         {isLowStock ? (
                           <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1 text-xs font-bold text-rose-700 border border-rose-200 whitespace-nowrap">
@@ -581,7 +793,6 @@ export default function DashboardPage() {
                         )}
                       </td>
 
-                      {/* ปุ่มจัดการ: ซ่อน/แสดงตามสิทธิ์ (RBAC) */}
                       <td className="px-5 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                           <button
@@ -591,7 +802,6 @@ export default function DashboardPage() {
                             เบิก/เติม
                           </button>
                           
-                          {/* ปุ่มแก้ไขและลบ แสดงเฉพาะสิทธิ์ MANAGER */}
                           {isManager && (
                             <>
                               <button
@@ -620,10 +830,10 @@ export default function DashboardPage() {
       </div>
 
       {/* ==========================================
-          7. MODALS (หน้าต่างป๊อปอัพสำหรับการจัดการ)
+          MODALS
          ========================================== */}
 
-      {/* Modal 1: ฟอร์มเพิ่ม / แก้ไข รายการสินค้า (Data Validation) */}
+      {/* Modal 1: เพิ่ม/แก้ไขสินค้า */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-md rounded-2xl border border-stone-300 bg-white p-6 shadow-2xl">
@@ -661,8 +871,8 @@ export default function DashboardPage() {
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none"
                   >
-                    {CATEGORY_OPTIONS.map((cat) => (
-                      <option key={cat} value={cat}>{cat}</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.name}>{cat.name}</option>
                     ))}
                   </select>
                 </div>
@@ -671,16 +881,15 @@ export default function DashboardPage() {
                   <select
                     value={formData.unit}
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                    className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none"
+                    className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-900 focus:border-amber-600 focus:outline-none"
                   >
-                    {UNIT_OPTIONS.map((u) => (
-                      <option key={u} value={u}>{u}</option>
+                    {units.map((u) => (
+                      <option key={u.id} value={u.name}>{u.name}</option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              {/* Validation: กำหนด min="0" ป้องกันใส่ค่าติดลบ */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-stone-700 mb-1">จำนวน</label>
@@ -747,7 +956,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Modal 2: ฟอร์มเบิก / เติมวัตถุดิบด่วน (Quick Usage) */}
+      {/* Modal 2: เบิก/เติมด่วน */}
       {isQuickUsageOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-md rounded-2xl border border-stone-300 bg-white p-6 shadow-2xl">
@@ -834,7 +1043,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Modal 3: ฟอร์มสร้าง/จัดการพนักงาน (User Management) */}
+      {/* Modal 3: สร้าง / แก้ไข / ลบ พนักงาน */}
       {isUserModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-2xl rounded-2xl border border-stone-300 bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -845,52 +1054,72 @@ export default function DashboardPage() {
               <button onClick={() => setIsUserModalOpen(false)} className="text-stone-400 hover:text-stone-800 font-bold">✕</button>
             </div>
 
-            <form onSubmit={handleAddUser} className="mb-6 bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-3">
-              <h3 className="text-xs font-extrabold text-amber-900 uppercase tracking-wider">+ เพิ่มพนักงานใหม่</h3>
+            {/* ฟอร์มสร้าง / แก้ไขพนักงาน */}
+            <form onSubmit={handleSaveUser} className="mb-6 bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-extrabold text-amber-900 uppercase tracking-wider">
+                  {editingUser ? `✏️ แก้ไขข้อมูล: ${editingUser.name}` : '+ เพิ่มพนักงานใหม่'}
+                </h3>
+                {editingUser && (
+                  <button
+                    type="button"
+                    onClick={() => openUserEditForm()}
+                    className="text-[11px] font-bold text-stone-500 hover:text-stone-800 underline"
+                  >
+                    ยกเลิกการแก้ไข
+                  </button>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <input
                   type="text"
                   placeholder="ชื่อ-นามสกุล"
                   required
-                  value={newUserForm.name}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })}
+                  value={userForm.name}
+                  onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
                   className="rounded-xl border border-stone-300 bg-white px-3.5 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:outline-none"
                 />
                 <input
                   type="email"
                   placeholder="อีเมล"
                   required
-                  value={newUserForm.email}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
+                  value={userForm.email}
+                  onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
                   className="rounded-xl border border-stone-300 bg-white px-3.5 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:outline-none"
                 />
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <input
                   type="password"
-                  placeholder="รหัสผ่าน"
-                  required
-                  value={newUserForm.password}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
+                  minLength={6}
+                  maxLength={10}
+                  placeholder={editingUser ? "รหัสผ่านใหม่ (6-10 ตัว) เว้นว่างถ้าไม่เปลี่ยน" : "รหัสผ่าน (6-10 ตัวอักษร)"}
+                  required={!editingUser}
+                  value={userForm.password}
+                  onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
                   className="rounded-xl border border-stone-300 bg-white px-3.5 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:outline-none"
                 />
                 <select
-                  value={newUserForm.role}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
+                  value={userForm.role}
+                  onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
                   className="rounded-xl border border-stone-300 bg-white px-3.5 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:outline-none"
                 >
                   <option value="STAFF">พนักงาน (STAFF)</option>
                   <option value="MANAGER">ผู้จัดการ (MANAGER)</option>
                 </select>
               </div>
+
               <button
                 type="submit"
-                className="w-full bg-amber-700 text-white font-bold py-2 rounded-xl text-xs hover:bg-amber-800 shadow-sm"
+                className="w-full bg-amber-700 text-white font-bold py-2 rounded-xl text-xs hover:bg-amber-800 shadow-sm transition-all"
               >
-                บันทึกพนักงานใหม่
+                {editingUser ? 'บันทึกการแก้ไขพนักงาน' : 'บันทึกพนักงานใหม่'}
               </button>
             </form>
 
+            {/* ตารางแสดงรายชื่อพนักงาน */}
             {loadingUsers ? (
               <div className="py-4 text-center text-xs font-bold text-stone-500">กำลังโหลด...</div>
             ) : (
@@ -900,17 +1129,39 @@ export default function DashboardPage() {
                     <th className="px-3 py-2.5">ชื่อ</th>
                     <th className="px-3 py-2.5">อีเมล</th>
                     <th className="px-3 py-2.5">ตำแหน่ง</th>
+                    <th className="px-3 py-2.5 text-right">จัดการ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-200">
                   {users.map((u) => (
-                    <tr key={u.id}>
+                    <tr key={u.id} className="hover:bg-stone-50">
                       <td className="px-3 py-2.5 font-bold text-stone-950">{u.name}</td>
                       <td className="px-3 py-2.5 text-stone-600 font-medium">{u.email}</td>
                       <td className="px-3 py-2.5">
                         <span className={`px-2.5 py-0.5 text-[10px] font-bold rounded ${u.role === 'MANAGER' ? 'bg-amber-100 text-amber-950 border border-amber-300' : 'bg-blue-100 text-blue-950 border border-blue-300'}`}>
                           {u.role}
                         </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => openUserEditForm(u)}
+                            className="rounded-lg bg-stone-100 px-2.5 py-1 text-[11px] font-bold text-stone-700 hover:bg-stone-200 border border-stone-300"
+                          >
+                            แก้ไข
+                          </button>
+
+                          {u.id !== currentUserId ? (
+                            <button
+                              onClick={() => handleDeleteUser(u.id, u.name)}
+                              className="rounded-lg bg-rose-100 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-200 border border-rose-300"
+                            >
+                              ลบ
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-stone-400 font-medium px-1">(บัญชีคุณ)</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -921,7 +1172,81 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Modal 4: แสดงประวัติการเบิก-เติมสต็อก (Audit Trail) */}
+      {/* Modal 4: จัดการหมวดหมู่สินค้า & หน่วยนับ */}
+      {isCatUnitModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-stone-300 bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="mb-4 flex items-center justify-between border-b border-stone-200 pb-3">
+              <h2 className="text-lg font-bold text-stone-950 flex items-center gap-2">
+                ⚙️ จัดการหมวดหมู่สินค้า & หน่วยนับ
+              </h2>
+              <button onClick={() => setIsCatUnitModalOpen(false)} className="text-stone-400 hover:text-stone-800 font-bold">✕</button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-3 bg-stone-50 p-4 rounded-xl border border-stone-200">
+                <h3 className="text-xs font-extrabold text-amber-900 uppercase tracking-wider">🏷️ หมวดหมู่สินค้า</h3>
+                <form onSubmit={handleAddCategory} className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="เพิ่มหมวดหมู่ใหม่..."
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    className="flex-1 rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:outline-none"
+                  />
+                  <button type="submit" className="bg-amber-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs hover:bg-amber-800">
+                    + เพิ่ม
+                  </button>
+                </form>
+                <div className="divide-y divide-stone-200 max-h-48 overflow-y-auto border border-stone-200 rounded-lg bg-white">
+                  {categories.map((cat) => (
+                    <div key={cat.id} className="flex items-center justify-between p-2 text-xs font-medium text-stone-800">
+                      <span>{cat.name}</span>
+                      <button
+                        onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                        className="text-rose-600 hover:text-rose-800 font-bold text-[11px]"
+                      >
+                        ลบ
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3 bg-stone-50 p-4 rounded-xl border border-stone-200">
+                <h3 className="text-xs font-extrabold text-amber-900 uppercase tracking-wider">📏 หน่วยนับ</h3>
+                <form onSubmit={handleAddUnit} className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="เพิ่มหน่วยนับใหม่..."
+                    value={newUnitName}
+                    onChange={(e) => setNewUnitName(e.target.value)}
+                    className="flex-1 rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:outline-none"
+                  />
+                  <button type="submit" className="bg-amber-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs hover:bg-amber-800">
+                    + เพิ่ม
+                  </button>
+                </form>
+                <div className="divide-y divide-stone-200 max-h-48 overflow-y-auto border border-stone-200 rounded-lg bg-white">
+                  {units.map((u) => (
+                    <div key={u.id} className="flex items-center justify-between p-2 text-xs font-medium text-stone-800">
+                      <span>{u.name}</span>
+                      <button
+                        onClick={() => handleDeleteUnit(u.id, u.name)}
+                        className="text-rose-600 hover:text-rose-800 font-bold text-[11px]"
+                      >
+                        ลบ
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 5: ประวัติการเบิก-เติมสต็อก */}
       {isLogsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-3xl rounded-2xl border border-stone-300 bg-white p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
@@ -964,6 +1289,107 @@ export default function DashboardPage() {
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal 6: โปรไฟล์ส่วนตัว & เปลี่ยนรหัสผ่าน */}
+      {isProfileModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-stone-300 bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between border-b border-stone-200 pb-3">
+              <h2 className="text-lg font-bold text-stone-950 flex items-center gap-2">
+                👤 โปรไฟล์ส่วนตัว & เปลี่ยนรหัสผ่าน
+              </h2>
+              <button onClick={() => setIsProfileModalOpen(false)} className="text-stone-400 hover:text-stone-800 font-bold">✕</button>
+            </div>
+
+            {loadingProfile ? (
+              <div className="py-8 text-center text-xs font-bold text-stone-500">กำลังโหลดข้อมูลโปรไฟล์...</div>
+            ) : (
+              <form onSubmit={handleSaveProfile} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">ชื่อ-นามสกุล</label>
+                  <input
+                    type="text"
+                    required
+                    value={profileForm.name}
+                    onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                    className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3.5 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">อีเมล</label>
+                  <input
+                    type="email"
+                    required
+                    value={profileForm.email}
+                    onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+                    className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3.5 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none"
+                  />
+                </div>
+
+                <div className="border-t border-stone-200 pt-3 mt-3">
+                  <p className="text-[11px] font-extrabold text-amber-900 uppercase tracking-wider mb-2">🔐 เปลี่ยนรหัสผ่าน (เว้นว่างไว้ถ้าไม่เปลี่ยน)</p>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 mb-1">รหัสผ่านปัจจุบัน</label>
+                      <input
+                        type="password"
+                        placeholder="กรอกเมื่อต้องการเปลี่ยนรหัสผ่าน"
+                        value={profileForm.currentPassword}
+                        onChange={(e) => setProfileForm({ ...profileForm, currentPassword: e.target.value })}
+                        className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3.5 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 mb-1">รหัสผ่านใหม่ (6-10 ตัวอักษร)</label>
+                      <input
+                        type="password"
+                        minLength={6}
+                        maxLength={10}
+                        placeholder="รหัสผ่านใหม่ (6-10 ตัวอักษร)"
+                        value={profileForm.newPassword}
+                        onChange={(e) => setProfileForm({ ...profileForm, newPassword: e.target.value })}
+                        className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3.5 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-stone-600 mb-1">ยืนยันรหัสผ่านใหม่</label>
+                      <input
+                        type="password"
+                        minLength={6}
+                        maxLength={10}
+                        placeholder="ยืนยันรหัสผ่านใหม่"
+                        value={profileForm.confirmPassword}
+                        onChange={(e) => setProfileForm({ ...profileForm, confirmPassword: e.target.value })}
+                        className="w-full rounded-xl border border-stone-300 bg-stone-50 px-3.5 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileModalOpen(false)}
+                    className="rounded-xl border border-stone-300 bg-stone-100 px-4 py-2 text-xs font-bold text-stone-700 hover:bg-stone-200"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-amber-700 px-5 py-2 text-xs font-bold text-white hover:bg-amber-800 shadow-md"
+                  >
+                    บันทึกการเปลี่ยนแปลง
+                  </button>
+                </div>
+              </form>
             )}
           </div>
         </div>

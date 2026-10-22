@@ -44,14 +44,28 @@ model User {
   logs      StockLog[]                    // ความสัมพันธ์แบบ 1-to-Many กับประวัติการทำรายการสต็อก
 }
 
+// 🏷️ ตารางจัดการหมวดหมู่สินค้า (Categories)
+model Category {
+  id        Int      @id @default(autoincrement()) // รหัส ID หมวดหมู่อัตโนมัติ
+  name      String   @unique                       // ชื่อหมวดหมู่ (ห้ามซ้ำ)
+  createdAt DateTime @default(now())              // วันเวลาที่สร้างรายการ
+}
+
+// 📏 ตารางจัดการหน่วยนับ (Units)
+model Unit {
+  id        Int      @id @default(autoincrement()) // รหัส ID หน่วยนับอัตโนมัติ
+  name      String   @unique                       // ชื่อหน่วยนับ (ห้ามซ้ำ)
+  createdAt DateTime @default(now())              // วันเวลาที่สร้างรายการ
+}
+
 // 📦 ตารางเก็บข้อมูลวัตถุดิบและสินค้า (Items)
 model Item {
   id           Int        @id @default(autoincrement()) // รหัส ID สินค้ารันอัตโนมัติ
   itemCode     String     @unique                       // รหัสสินค้าเฉพาะ เช่น CF-001, BK-001 (ห้ามซ้ำ)
   name         String                                   // ชื่อวัตถุดิบ / สินค้า
-  category     String                                   // หมวดหมู่สินค้า (เช่น เมล็ดกาแฟ, ผลิตภัณฑ์นม, เบเกอรี่)
+  category     String                                   // หมวดหมู่สินค้า (อ้างอิงชื่อหมวดหมู่)
   quantity     Float                                    // จำนวนคงเหลือปัจจุบันในระบบ
-  unit         String                                   // หน่วยนับ (เช่น ถุง, แกลลอน, ขวด, กิโลกรัม)
+  unit         String                                   // หน่วยนับ (อ้างอิงชื่อหน่วยนับ)
   minQuantity  Float                                    // จำนวนขั้นต่ำสำหรับแจ้งเตือน "สต็อกต่ำ"
   pricePerUnit Float                                    // ราคาต้นทุนต่อหน่วย (บาท)
   expiryDate   DateTime?                                // วันหมดอายุของวัตถุดิบ (เป็น Optional ถ้าสินค้าไม่มีวันหมดอายุ)

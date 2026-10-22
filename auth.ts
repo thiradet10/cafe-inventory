@@ -88,21 +88,30 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       return true
     },
-    // Callback jwt: แนบสิทธิ์ (Role) จากฐานข้อมูลเข้าไปยัง JWT Token
-    async jwt({ token }) {
+    // Callback jwt: แนบสิทธิ์ (Role) และรองรับการอัปเดตข้อมูล Session แบบ Real-time
+    async jwt({ token, trigger, session }) {
+      // 🟢 หากมีการสั่ง update() จาก Client ให้ใช้ข้อมูลใหม่ที่ส่งเข้ามาทันที
+      if (trigger === 'update' && session) {
+        if (session.name) token.name = session.name
+        if (session.email) token.email = session.email
+      }
+
       if (token.email) {
         const dbUser = await prisma.user.findUnique({
-          where: { email: token.email },
+          where: { email: token.email as string },
         })
         if (dbUser) {
-          token.role = dbUser.role // ผูกค่า Role เข้ากับ Token
+          token.role = dbUser.role // ผูกค่า Role
+          token.name = dbUser.name // ดึงชื่อล่าสุดจากฐานข้อมูล
         }
       }
       return token
     },
-    // Callback session: นำค่า Role จาก JWT Token มาใส่ไว้ใน Session Object ของผู้ใช้งาน
+    // Callback session: นำค่า Name, Email และ Role จาก JWT Token มาใส่ไว้ใน Session Object ของผู้ใช้งาน
     async session({ session, token }) {
       if (session.user) {
+        session.user.name = token.name as string
+        session.user.email = token.email as string
         ;(session.user as { role?: string }).role = token.role as string
       }
       return session
